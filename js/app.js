@@ -101,6 +101,7 @@
     resultDistance: document.getElementById('result-distance'),
     resultPoles: document.getElementById('result-poles'),
     resultTransport: document.getElementById('result-transport'),
+    tableRingkasanBiaya: document.getElementById('table-ringkasan-biaya'),
     tableMain: document.getElementById('table-main'),
     tableJenisKonstruksi: document.getElementById('table-jenis-konstruksi'),
     tableNonUtama: document.getElementById('table-non-utama'),
@@ -468,38 +469,50 @@
   });
 
   // Gabungkan daftar kode (termasuk gardu yang jadi 2 entri, dan titik
-  // existing) jadi ringkasan Jenis Konstruksi + agregat Material Non Utama.
-  function aggregateCodes(codeList) {
+  // existing) jadi ringkasan Pekerjaan Konstruksi (Jasa) + agregat Material
+  // Non Utama, lengkap dengan harga dari RAB KR JASA.
+  function aggregateCodes(codeList, category) {
     const counts = {};
     codeList.forEach((c) => {
       counts[c] = (counts[c] || 0) + 1;
     });
 
+    let totalJasa = 0;
+    let materialDalamKonstruksi = 0;
     const jenisRows = Object.keys(counts)
       .sort()
-      .map((code) => ({ code, title: CONSTRUCTION_CODES[code].title, count: counts[code] }));
-
-    const materialMap = {};
-    Object.keys(counts).forEach((code) => {
-      const n = counts[code];
-      CONSTRUCTION_CODES[code].materials.forEach((m) => {
-        if (!materialMap[m.nama]) {
-          materialMap[m.nama] = { nama: m.nama, satuan: m.satuan, qty: 0, variable: false };
-        }
-        if (m.qty === 'menyesuaikan') {
-          materialMap[m.nama].variable = true;
-        } else {
-          materialMap[m.nama].qty += m.qty * n;
-        }
+      .map((code) => {
+        const info = CONSTRUCTION_CODES[code];
+        const count = counts[code];
+        const jasaSubtotal = info.jasaHarga * count;
+        const materialSubtotal = (info.materialHarga || 0) * count;
+        totalJasa += jasaSubtotal;
+        materialDalamKonstruksi += materialSubtotal;
+        return {
+          code,
+          title: info.title,
+          count,
+          harga: info.jasaHarga,
+          subtotal: jasaSubtotal + materialSubtotal,
+        };
       });
-    });
-    const materialRows = Object.values(materialMap).map((m) => ({
-      nama: m.nama,
-      satuan: m.satuan,
-      qty: m.variable ? 'menyesuaikan' : m.qty,
-    }));
 
-    return { jenisRows, materialRows };
+    const recipe = NON_UTAMA_RECIPE[category] || [];
+    let totalNonUtama = materialDalamKonstruksi;
+    const materialRows = [];
+    recipe.forEach((item) => {
+      let qty = 0;
+      Object.keys(item.per_code).forEach((code) => {
+        qty += (counts[code] || 0) * item.per_code[code];
+      });
+      if (qty > 0) {
+        const subtotal = qty * item.harga;
+        totalNonUtama += subtotal;
+        materialRows.push({ nama: item.nama, satuan: item.satuan, harga: item.harga, qty, subtotal });
+      }
+    });
+
+    return { jenisRows, materialRows, totalJasa, totalNonUtama };
   }
 
   function computeMaterials() {
@@ -522,46 +535,105 @@
       codeList.push(codes.existing);
     }
 
+    let totalMaterialUtama = 0;
     const mainRows = MAIN_MATERIALS[state.category].map((item) => {
       const qty = item.qtyFrom === 'poles' ? totalPoles : Math.round(state.distanceMeters);
-      return { nama: item.nama, satuan: item.satuan, qty };
+      const harga = MATERIAL_UTAMA_PRICES[item.nama] || 0;
+      const subtotal = qty * harga;
+      totalMaterialUtama += subtotal;
+      return { nama: item.nama, satuan: item.satuan, qty, harga, subtotal };
     });
+
+    let trafoSubtotal = 0;
     if (garduCount > 0) {
       const garduPole = state.poleList.find((p) => p.isGardu);
       const kva = (garduPole && garduPole.garduKva) || 100;
+      const harga = TRAFO_PRICES[kva] || 0;
+      trafoSubtotal = harga * garduCount;
+      totalMaterialUtama += trafoSubtotal;
       mainRows.push({
         nama: 'Trafo Distribusi ' + kva + ' kVA',
         satuan: 'Unit',
         qty: garduCount,
+        harga,
+        subtotal: trafoSubtotal,
       });
     }
 
-    const { jenisRows, materialRows } = aggregateCodes(codeList);
+    const { jenisRows, materialRows, totalJasa, totalNonUtama } = aggregateCodes(codeList, state.category);
 
-    return { totalPoles, mainRows, jenisRows, materialRows, garduCount };
+    const totalAksesorisJasa = totalJasa + totalNonUtama;
+    const grandTotal = totalMaterialUtama + totalJasa + totalNonUtama;
+
+    return {
+      totalPoles,
+      mainRows,
+      jenisRows,
+      materialRows,
+      garduCount,
+      trafoSubtotal,
+      totalMaterialUtama,
+      totalJasa,
+      totalNonUtama,
+      totalAksesorisJasa,
+      grandTotal,
+    };
+  }
+
+  function formatRupiah(n) {
+    return 'Rp ' + Math.round(n).toLocaleString('id-ID');
   }
 
   function renderTable(tableEl, rows) {
     tableEl.innerHTML =
-      '<thead><tr><th>No</th><th>Uraian Material</th><th>Satuan</th><th>Volume</th></tr></thead>';
+      '<thead><tr><th>No</th><th>Uraian Material</th><th>Satuan</th><th>Volume</th><th>Harga Satuan</th><th>Jumlah Harga</th></tr></thead>';
     const tbody = document.createElement('tbody');
     rows.forEach((r, i) => {
       const tr = document.createElement('tr');
       tr.innerHTML =
-        '<td>' + (i + 1) + '</td><td>' + r.nama + '</td><td>' + r.satuan + '</td><td class="num">' + r.qty + '</td>';
+        '<td>' + (i + 1) + '</td><td>' + r.nama + '</td><td>' + r.satuan + '</td><td class="num">' + r.qty +
+        '</td><td class="num">' + formatRupiah(r.harga) + '</td><td class="num">' + formatRupiah(r.subtotal) + '</td>';
       tbody.appendChild(tr);
     });
     tableEl.appendChild(tbody);
   }
 
   function renderJenisKonstruksiTable(tableEl, rows) {
-    tableEl.innerHTML = '<thead><tr><th>Kode</th><th>Nama Konstruksi</th><th>Jumlah Titik</th></tr></thead>';
+    tableEl.innerHTML =
+      '<thead><tr><th>Kode</th><th>Nama Konstruksi</th><th>Jumlah Titik</th><th>Harga Satuan</th><th>Jumlah Harga</th></tr></thead>';
     const tbody = document.createElement('tbody');
     rows.forEach((r) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + r.code + '</td><td>' + r.title + '</td><td class="num">' + r.count + '</td>';
+      tr.innerHTML =
+        '<td>' + r.code + '</td><td>' + r.title + '</td><td class="num">' + r.count +
+        '</td><td class="num">' + formatRupiah(r.harga) + '</td><td class="num">' + formatRupiah(r.subtotal) + '</td>';
       tbody.appendChild(tr);
     });
+    tableEl.appendChild(tbody);
+  }
+
+  function renderRingkasanBiaya(tableEl, result) {
+    const rows = [
+      ['Total Material Utama (MDU)', result.totalMaterialUtama],
+      ['Total Jasa (Pekerjaan Konstruksi)', result.totalJasa],
+      ['Total Material Non Utama (Aksesoris)', result.totalNonUtama],
+      ['Total Aksesoris + Jasa', result.totalAksesorisJasa],
+      ['GRAND TOTAL', result.grandTotal],
+    ];
+    tableEl.innerHTML = '<thead><tr><th>Komponen</th><th>Jumlah</th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    rows.forEach(([label, value]) => {
+      const tr = document.createElement('tr');
+      if (label === 'GRAND TOTAL') tr.style.fontWeight = 'bold';
+      tr.innerHTML = '<td>' + label + '</td><td class="num">' + formatRupiah(value) + '</td>';
+      tbody.appendChild(tr);
+    });
+    if (result.garduCount > 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>Termasuk Trafo Gardu</td><td class="num">' + formatRupiah(result.trafoSubtotal) + '</td>';
+      tbody.appendChild(tr);
+    }
     tableEl.appendChild(tbody);
   }
 
@@ -577,6 +649,7 @@
         el.resultDistance.textContent = formatDistance(state.distanceMeters);
         el.resultPoles.textContent = result.totalPoles + ' batang';
 
+        renderRingkasanBiaya(el.tableRingkasanBiaya, result);
         renderTable(el.tableMain, result.mainRows);
         renderJenisKonstruksiTable(el.tableJenisKonstruksi, result.jenisRows);
         renderTable(el.tableNonUtama, result.materialRows);
@@ -611,29 +684,42 @@
 
   el.btnExport.addEventListener('click', function () {
     if (!lastResult) return;
-    const rows = [['No', 'Uraian Material', 'Satuan', 'Volume']];
+    const rows = [['No', 'Uraian', 'Satuan', 'Volume', 'Harga Satuan', 'Jumlah Harga']];
     let no = 1;
     rows.push([
       '',
       'Jarak Transportasi (Gudang → Lokasi)',
       'km',
       lastResult.transportKm != null ? lastResult.transportKm.toFixed(1) : 'n/a',
+      '',
+      '',
     ]);
-    rows.push(['', 'MATERIAL UTAMA', '', '']);
+    rows.push(['', 'MATERIAL UTAMA', '', '', '', '']);
     lastResult.mainRows.forEach((r) => {
-      rows.push([no++, r.nama, r.satuan, r.qty]);
+      rows.push([no++, r.nama, r.satuan, r.qty, r.harga, r.subtotal]);
     });
-    rows.push(['', 'JENIS KONSTRUKSI', '', '']);
+    rows.push(['', 'PEKERJAAN KONSTRUKSI (JASA)', '', '', '', '']);
     lastResult.jenisRows.forEach((r) => {
-      rows.push([no++, r.code + ' - ' + r.title, 'Titik', r.count]);
+      rows.push([no++, r.code + ' - ' + r.title, 'Titik', r.count, r.harga, r.subtotal]);
     });
-    rows.push(['', 'MATERIAL NON UTAMA', '', '']);
+    rows.push(['', 'MATERIAL NON UTAMA', '', '', '', '']);
     lastResult.materialRows.forEach((r) => {
-      rows.push([no++, r.nama, r.satuan, r.qty]);
+      rows.push([no++, r.nama, r.satuan, r.qty, r.harga, r.subtotal]);
     });
 
+    rows.push(['', '', '', '', '', '']);
+    rows.push(['', 'RINGKASAN BIAYA', '', '', '', '']);
+    rows.push(['', 'Total Material Utama (MDU)', '', '', '', lastResult.totalMaterialUtama]);
+    rows.push(['', 'Total Jasa (Pekerjaan Konstruksi)', '', '', '', lastResult.totalJasa]);
+    rows.push(['', 'Total Material Non Utama (Aksesoris)', '', '', '', lastResult.totalNonUtama]);
+    rows.push(['', 'Total Aksesoris + Jasa', '', '', '', lastResult.totalAksesorisJasa]);
+    rows.push(['', 'GRAND TOTAL', '', '', '', lastResult.grandTotal]);
+    if (lastResult.garduCount > 0) {
+      rows.push(['', 'Termasuk Trafo Gardu', '', '', '', lastResult.trafoSubtotal]);
+    }
+
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{ wch: 5 }, { wch: 45 }, { wch: 10 }, { wch: 10 }];
+    ws['!cols'] = [{ wch: 5 }, { wch: 45 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Estimasi Material');
 
