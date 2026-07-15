@@ -201,6 +201,50 @@ html, body {
   color: #1a1a1a;
 }
 
+.gardu-list {
+  margin-top: 10px;
+}
+
+.gardu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: #f3ecf9;
+  border: 1px solid #d9c6ef;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.gardu-item .gardu-item-label {
+  font-weight: 600;
+  color: #6c2fa3;
+  flex: 1 1 auto;
+}
+
+.btn-remove-gardu {
+  border: none;
+  background: #e2e2e2;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.btn-remove-gardu:hover {
+  background: #d5d5d5;
+}
+
+.map-preview {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  margin-bottom: 14px;
+  display: block;
+}
+
 .btn-row {
   display: flex;
   gap: 8px;

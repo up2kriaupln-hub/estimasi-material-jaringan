@@ -97,20 +97,7 @@
         <p class="hint">
           Titik-titik tiang sudah muncul di peta. Klik salah satu titik tiang (oranye) untuk menandainya sebagai lokasi <strong>Gardu</strong> (opsional).
         </p>
-        <p class="hint" id="gardu-status" hidden>
-          Gardu ditandai di 1 titik.
-        </p>
-        <div class="stat" id="gardu-kva-row" hidden>
-          <span class="stat-label">Kapasitas Trafo</span>
-          <select id="gardu-kva" class="select-kva">
-            <option value="50">50 kVA</option>
-            <option value="100" selected>100 kVA</option>
-            <option value="160">160 kVA</option>
-          </select>
-        </div>
-        <div class="btn-row">
-          <button id="btn-hapus-gardu" class="btn btn-secondary" hidden>Hapus Gardu</button>
-        </div>
+        <div id="gardu-list" class="gardu-list"></div>
         <div class="btn-row">
           <button id="btn-confirm-calc" class="btn btn-primary">Hitung Material</button>
           <button id="btn-redo-points" class="btn btn-secondary">Ulangi Penitikan</button>
@@ -126,6 +113,9 @@
           Jarak Transportasi (Gudang &rarr; Lokasi): <strong id="result-transport"></strong>
         </p>
 
+        <h3>Pratinjau Peta</h3>
+        <img id="map-preview" class="map-preview" alt="Pratinjau peta rute" />
+
         <h3>Ringkasan Biaya</h3>
         <table class="material-table" id="table-ringkasan-biaya"></table>
 
@@ -140,6 +130,7 @@
 
         <div class="btn-row">
           <button id="btn-export" class="btn btn-primary">Export ke Excel</button>
+          <button id="btn-export-pdf" class="btn btn-primary">Export ke PDF</button>
           <button id="btn-new" class="btn btn-secondary">Mulai Baru</button>
         </div>
       </section>
@@ -151,6 +142,9 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
 <script src="js/material-data.js"></script>
 <script src="js/app.js"></script>
 </body>

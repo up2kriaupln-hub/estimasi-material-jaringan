@@ -93,10 +93,7 @@
     btnBackToDraw: document.getElementById('btn-back-to-draw'),
     confirmCategory: document.getElementById('confirm-category'),
     confirmDistance: document.getElementById('confirm-distance'),
-    garduStatus: document.getElementById('gardu-status'),
-    garduKvaRow: document.getElementById('gardu-kva-row'),
-    garduKva: document.getElementById('gardu-kva'),
-    btnHapusGardu: document.getElementById('btn-hapus-gardu'),
+    garduList: document.getElementById('gardu-list'),
     btnConfirmCalc: document.getElementById('btn-confirm-calc'),
     btnRedoPoints: document.getElementById('btn-redo-points'),
     resultCategory: document.getElementById('result-category'),
@@ -107,9 +104,18 @@
     tableMain: document.getElementById('table-main'),
     tableJenisKonstruksi: document.getElementById('table-jenis-konstruksi'),
     tableNonUtama: document.getElementById('table-non-utama'),
+    mapPreview: document.getElementById('map-preview'),
     btnExport: document.getElementById('btn-export'),
+    btnExportPdf: document.getElementById('btn-export-pdf'),
     btnNew: document.getElementById('btn-new'),
   };
+
+  // Capture peta (termasuk rute & marker yang sedang tergambar) jadi gambar
+  // PNG, dipakai untuk pratinjau di panel dan latar export PDF.
+  async function captureMapImage() {
+    const canvas = await html2canvas(document.getElementById('map'), { useCORS: true, allowTaint: false });
+    return canvas.toDataURL('image/png');
+  }
 
   // --- Riwayat aksi terpadu (undo/redo untuk seluruh alur, bukan cuma titik) ---
   function updateUndoRedoButtons() {
@@ -345,40 +351,54 @@
     return pole.code;
   }
 
+  // Gardu boleh ditandai di lebih dari 1 titik sekaligus (beberapa lokasi
+  // butuh 2+ trafo) — tiap titik independen, tidak saling menghapus.
   function toggleGardu(pole) {
-    const prevGarduPole = state.poleList.find((p) => p.isGardu);
     const wasGardu = pole.isGardu;
     doAction({
       redo: function () {
-        state.poleList.forEach((p) => (p.isGardu = false));
         pole.isGardu = !wasGardu;
         if (pole.isGardu && !pole.garduKva) pole.garduKva = 100;
         renderPoleMarkers();
       },
       undo: function () {
-        state.poleList.forEach((p) => (p.isGardu = false));
-        if (prevGarduPole) prevGarduPole.isGardu = true;
+        pole.isGardu = wasGardu;
         renderPoleMarkers();
       },
     });
   }
 
-  function updateGarduStatusUI() {
-    const garduPole = state.poleList.find((p) => p.isGardu);
-    el.garduStatus.hidden = !garduPole;
-    el.garduKvaRow.hidden = !garduPole;
-    el.btnHapusGardu.hidden = !garduPole;
-    if (garduPole) el.garduKva.value = String(garduPole.garduKva || 100);
+  function renderGarduList() {
+    const garduPoles = state.poleList.filter((p) => p.isGardu);
+    el.garduList.innerHTML = '';
+    garduPoles.forEach(function (pole, i) {
+      const div = document.createElement('div');
+      div.className = 'gardu-item';
+      const options = [50, 100, 160]
+        .map(function (k) {
+          return '<option value="' + k + '"' + (pole.garduKva === k ? ' selected' : '') + '>' + k + ' kVA</option>';
+        })
+        .join('');
+      div.innerHTML =
+        '<span class="gardu-item-label">Gardu ' + (i + 1) + '</span>' +
+        '<select class="select-kva" data-vertex="' + pole.vertexIndex + '">' + options + '</select>' +
+        '<button type="button" class="btn-remove-gardu" data-vertex="' + pole.vertexIndex + '">Hapus</button>';
+      el.garduList.appendChild(div);
+    });
   }
 
-  el.garduKva.addEventListener('change', function () {
-    const garduPole = state.poleList.find((p) => p.isGardu);
-    if (garduPole) garduPole.garduKva = Number(el.garduKva.value);
+  el.garduList.addEventListener('change', function (e) {
+    if (!e.target.classList.contains('select-kva')) return;
+    const vi = Number(e.target.dataset.vertex);
+    const pole = state.poleList.find((p) => p.vertexIndex === vi);
+    if (pole) pole.garduKva = Number(e.target.value);
   });
 
-  el.btnHapusGardu.addEventListener('click', function () {
-    const garduPole = state.poleList.find((p) => p.isGardu);
-    if (garduPole) toggleGardu(garduPole);
+  el.garduList.addEventListener('click', function (e) {
+    if (!e.target.classList.contains('btn-remove-gardu')) return;
+    const vi = Number(e.target.dataset.vertex);
+    const pole = state.poleList.find((p) => p.vertexIndex === vi);
+    if (pole) toggleGardu(pole);
   });
 
   function renderPoleMarkers() {
@@ -393,7 +413,7 @@
       }
       return marker;
     });
-    updateGarduStatusUI();
+    renderGarduList();
   }
 
   function resetPoints() {
@@ -682,20 +702,33 @@
       return { nama: item.nama, satuan: item.satuan, qty, harga, subtotal };
     });
 
+    // Bisa ada beberapa gardu dengan kVA berbeda-beda sekaligus -> kelompokkan
+    // per kVA supaya masing-masing jadi baris tersendiri di Material Utama.
     let trafoSubtotal = 0;
     if (garduCount > 0) {
-      const garduPole = state.poleList.find((p) => p.isGardu);
-      const kva = (garduPole && garduPole.garduKva) || 100;
-      const harga = TRAFO_PRICES[kva] || 0;
-      trafoSubtotal = harga * garduCount;
-      totalMaterialUtama += trafoSubtotal;
-      mainRows.push({
-        nama: 'Trafo Distribusi ' + kva + ' kVA',
-        satuan: 'Unit',
-        qty: garduCount,
-        harga,
-        subtotal: trafoSubtotal,
-      });
+      const kvaGroups = {};
+      state.poleList
+        .filter((p) => p.isGardu)
+        .forEach((p) => {
+          const kva = p.garduKva || 100;
+          kvaGroups[kva] = (kvaGroups[kva] || 0) + 1;
+        });
+      Object.keys(kvaGroups)
+        .sort((a, b) => a - b)
+        .forEach((kva) => {
+          const qty = kvaGroups[kva];
+          const harga = TRAFO_PRICES[kva] || 0;
+          const subtotal = harga * qty;
+          trafoSubtotal += subtotal;
+          totalMaterialUtama += subtotal;
+          mainRows.push({
+            nama: 'Trafo Distribusi ' + kva + ' kVA',
+            satuan: 'Unit',
+            qty,
+            harga,
+            subtotal,
+          });
+        });
     }
 
     const { jenisRows, materialRows, totalJasa, totalNonUtama } = aggregateCodes(codeList, state.category);
@@ -794,6 +827,16 @@
 
         showStep('result');
 
+        el.mapPreview.removeAttribute('src');
+        captureMapImage()
+          .then(function (dataUrl) {
+            lastResult.mapImage = dataUrl;
+            el.mapPreview.src = dataUrl;
+          })
+          .catch(function () {
+            lastResult.mapImage = null;
+          });
+
         el.resultTransport.textContent = 'Menghitung...';
         const dest = state.points[state.points.length - 1];
         fetchTransportDistanceKm(dest.lat, dest.lng)
@@ -864,6 +907,77 @@
     const catLabel = CATEGORY_LABELS[state.category].replace(/[^a-z0-9]+/gi, '-');
     const fname = 'estimasi-material-' + catLabel + '-' + Date.now() + '.xlsx';
     XLSX.writeFile(wb, fname);
+  });
+
+  // --- Export PDF gaya gambar teknis (peta + tabel material, tanpa harga) ---
+
+  function buildJenisPekerjaanRows(result) {
+    const distKm = (state.distanceMeters / 1000).toFixed(3);
+    const volumeLabel = { JTM: 'SUTM Murni', JTR_MURNI: 'SUTR Murni', NUMPANG: 'SUTM & SUTR Numpang' }[state.category];
+    const rows = [[volumeLabel, distKm, 'KMS']];
+    result.mainRows.forEach((r) => {
+      if (r.nama.indexOf('Conductor') !== -1 || r.nama.indexOf('Kabel') !== -1) return;
+      rows.push([r.nama, String(r.qty), r.satuan]);
+    });
+    return rows;
+  }
+
+  function buildMaterialTerpasangRows(result) {
+    return result.jenisRows.map((r) => [r.code, r.title, String(r.count), 'SET']);
+  }
+
+  el.btnExportPdf.addEventListener('click', async function () {
+    if (!lastResult) return;
+    el.btnExportPdf.disabled = true;
+    const originalLabel = el.btnExportPdf.textContent;
+    el.btnExportPdf.textContent = 'Menyiapkan PDF...';
+    try {
+      const mapImage = lastResult.mapImage || (await captureMapImage());
+      const jsPDFCtor = window.jspdf.jsPDF;
+      const doc = new jsPDFCtor({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+      doc.setFontSize(12);
+      doc.text('RENCANA PEKERJAAN PEMBANGUNAN JARINGAN DISTRIBUSI', 10, 12);
+      doc.setFontSize(9);
+      doc.text('Kategori: ' + CATEGORY_LABELS[state.category], 10, 19);
+      doc.text('Jarak Rute: ' + formatDistance(state.distanceMeters), 10, 24);
+      doc.text('Jumlah Tiang: ' + lastResult.totalPoles + ' batang', 10, 29);
+
+      doc.autoTable({
+        startY: 34,
+        head: [['Jenis Pekerjaan', 'Volume', 'Satuan']],
+        body: buildJenisPekerjaanRows(lastResult),
+        margin: { left: 10, right: 150 },
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [11, 61, 145] },
+      });
+
+      doc.autoTable({
+        startY: doc.lastAutoTable.finalY + 6,
+        head: [['Kode', 'Material Terpasang', 'Volume', 'Satuan']],
+        body: buildMaterialTerpasangRows(lastResult),
+        margin: { left: 10, right: 150 },
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [11, 61, 145] },
+      });
+
+      if (mapImage) {
+        const imgProps = doc.getImageProperties(mapImage);
+        const imgW = 138;
+        const imgH = Math.min((imgProps.height * imgW) / imgProps.width, 180);
+        doc.setDrawColor(150);
+        doc.rect(153, 10, imgW, imgH);
+        doc.addImage(mapImage, 'PNG', 153, 10, imgW, imgH);
+      }
+
+      const catLabel = CATEGORY_LABELS[state.category].replace(/[^a-z0-9]+/gi, '-');
+      doc.save('gambar-rencana-' + catLabel + '-' + Date.now() + '.pdf');
+    } catch (err) {
+      alert('Gagal membuat PDF: ' + err.message);
+    } finally {
+      el.btnExportPdf.disabled = false;
+      el.btnExportPdf.textContent = originalLabel;
+    }
   });
 
   updateDrawUI();
