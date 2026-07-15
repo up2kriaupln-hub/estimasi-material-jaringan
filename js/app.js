@@ -340,9 +340,15 @@
 
   function poleMarkerStyle(pole) {
     if (pole.isGardu) {
-      return { radius: 8, color: '#ffffff', fillColor: '#8e44ad', fillOpacity: 1, weight: 2 };
+      return { radius: 10, color: '#ffffff', fillColor: '#8e44ad', fillOpacity: 1, weight: 3 };
     }
-    return { radius: 6, color: '#ffffff', fillColor: '#e67e22', fillOpacity: 1, weight: 2 };
+    // Titik yang bisa diklik (hasil klik user, bukan sisipan tiap span) dibuat
+    // lebih besar & mencolok supaya gampang dibedakan dan gampang di-tap,
+    // terutama di rute padat (ratusan tiang dari upload KML/KMZ).
+    if (pole.vertexIndex !== null) {
+      return { radius: 9, color: '#ffffff', fillColor: '#e67e22', fillOpacity: 1, weight: 3 };
+    }
+    return { radius: 3, color: '#ffffff', fillColor: '#f3b26a', fillOpacity: 1, weight: 1 };
   }
 
   function poleTooltip(pole) {
