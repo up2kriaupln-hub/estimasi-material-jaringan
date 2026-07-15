@@ -80,6 +80,8 @@
     liveDistance: document.getElementById('live-distance'),
     btnFinishDraw: document.getElementById('btn-finish-draw'),
     btnResetDraw: document.getElementById('btn-reset-draw'),
+    gpsFileInput: document.getElementById('gps-file-input'),
+    gpsUploadStatus: document.getElementById('gps-upload-status'),
     btnUndo: document.getElementById('btn-undo'),
     btnRedo: document.getElementById('btn-redo'),
     undoRedoGroup: document.getElementById('undo-redo-group'),
@@ -407,6 +409,142 @@
     state.distanceMeters = 0;
     updateDrawUI();
   }
+
+  // --- Upload track GPS (KML/KMZ) ---
+
+  function parseKMLText(text) {
+    const xml = new DOMParser().parseFromString(text, 'text/xml');
+    const coordEls = xml.getElementsByTagName('coordinates');
+    let coordsText = '';
+    for (let i = 0; i < coordEls.length; i++) {
+      const parentTag = coordEls[i].parentNode && coordEls[i].parentNode.tagName;
+      if (parentTag === 'LineString') {
+        coordsText = coordEls[i].textContent;
+        break;
+      }
+    }
+    if (!coordsText && coordEls.length) {
+      coordsText = Array.from(coordEls)
+        .map((el) => el.textContent)
+        .join(' ');
+    }
+    return coordsText
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((tuple) => {
+        const parts = tuple.split(',');
+        return { lat: parseFloat(parts[1]), lng: parseFloat(parts[0]) };
+      })
+      .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
+  }
+
+  async function parseKMZFile(file) {
+    const zip = await JSZip.loadAsync(file);
+    let kmlEntry = null;
+    zip.forEach((relPath, entry) => {
+      if (!kmlEntry && relPath.toLowerCase().endsWith('.kml')) kmlEntry = entry;
+    });
+    if (!kmlEntry) throw new Error('Tidak ada file .kml di dalam KMZ');
+    const text = await kmlEntry.async('text');
+    return parseKMLText(text);
+  }
+
+  // Jarak tegak lurus titik `p` terhadap garis lurus (a-b), dalam meter,
+  // pakai proyeksi datar lokal (cukup akurat untuk radius simplifikasi kecil).
+  function perpendicularDistanceMeters(p, a, b) {
+    const R = 6371000;
+    const toXY = (pt) => ({
+      x: ((pt.lng - a.lng) * Math.PI * R * Math.cos((a.lat * Math.PI) / 180)) / 180,
+      y: ((pt.lat - a.lat) * Math.PI * R) / 180,
+    });
+    const P = toXY(p);
+    const A = { x: 0, y: 0 };
+    const B = toXY(b);
+    const dx = B.x - A.x;
+    const dy = B.y - A.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.sqrt(P.x * P.x + P.y * P.y);
+    const t = Math.max(0, Math.min(1, (P.x * dx + P.y * dy) / lenSq));
+    const projX = A.x + t * dx;
+    const projY = A.y + t * dy;
+    return Math.sqrt((P.x - projX) ** 2 + (P.y - projY) ** 2);
+  }
+
+  // Sederhanakan track GPS padat jadi titik-titik belokan penting saja
+  // (algoritma Douglas-Peucker), supaya tidak jadi ratusan tiang per meter.
+  function simplifyTrack(points, toleranceMeters) {
+    if (points.length < 3) return points.slice();
+    let maxDist = 0;
+    let index = 0;
+    const last = points.length - 1;
+    for (let i = 1; i < last; i++) {
+      const d = perpendicularDistanceMeters(points[i], points[0], points[last]);
+      if (d > maxDist) {
+        maxDist = d;
+        index = i;
+      }
+    }
+    if (maxDist > toleranceMeters) {
+      const left = simplifyTrack(points.slice(0, index + 1), toleranceMeters);
+      const right = simplifyTrack(points.slice(index), toleranceMeters);
+      return left.slice(0, -1).concat(right);
+    }
+    return [points[0], points[last]];
+  }
+
+  function loadTrackAsRoute(points) {
+    const prevPoints = state.points.slice();
+    function applyPoints(pts) {
+      resetPoints();
+      pts.forEach((p) => {
+        state.points.push(p);
+        addPointMarker(p);
+      });
+      redrawPolyline();
+      recomputeDistance();
+      updateDrawUI();
+      if (state.polyline) map.fitBounds(state.polyline.getBounds(), { padding: [30, 30] });
+    }
+    doAction({
+      redo: function () {
+        applyPoints(points);
+      },
+      undo: function () {
+        applyPoints(prevPoints);
+      },
+    });
+  }
+
+  el.gpsFileInput.addEventListener('change', async function (e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (state.step !== 'draw') {
+      e.target.value = '';
+      return;
+    }
+    el.gpsUploadStatus.textContent = 'Membaca file...';
+    try {
+      let rawPoints;
+      if (file.name.toLowerCase().endsWith('.kmz')) {
+        rawPoints = await parseKMZFile(file);
+      } else {
+        rawPoints = parseKMLText(await file.text());
+      }
+      if (rawPoints.length < 2) {
+        el.gpsUploadStatus.textContent = 'File tidak berisi track/garis yang valid.';
+        return;
+      }
+      const simplified = simplifyTrack(rawPoints, 8);
+      loadTrackAsRoute(simplified);
+      el.gpsUploadStatus.textContent =
+        'Track dimuat: ' + simplified.length + ' titik (disederhanakan dari ' + rawPoints.length + ' titik asli).';
+    } catch (err) {
+      el.gpsUploadStatus.textContent = 'Gagal membaca file: ' + err.message;
+    } finally {
+      e.target.value = '';
+    }
+  });
 
   function showStep(step) {
     state.step = step;

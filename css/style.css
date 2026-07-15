@@ -159,6 +159,18 @@ html, body {
   line-height: 1.4;
 }
 
+.hint-small {
+  font-size: 0.75rem;
+  color: #666;
+  min-height: 1em;
+}
+
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
 .stat {
   display: flex;
   justify-content: space-between;

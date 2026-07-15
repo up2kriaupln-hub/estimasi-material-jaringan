@@ -53,6 +53,14 @@
       <section id="step-draw" class="step">
         <h2>1. Titik Rute</h2>
         <p class="hint">Klik pada peta untuk menandai titik A, B, C, dst mengikuti rute jaringan.</p>
+        <p class="hint">Atau upload track GPS:</p>
+        <div class="btn-row">
+          <label class="btn btn-secondary file-btn">
+            Upload KML/KMZ
+            <input type="file" id="gps-file-input" accept=".kml,.kmz" hidden />
+          </label>
+        </div>
+        <p class="hint hint-small" id="gps-upload-status"></p>
         <div class="stat">
           <span class="stat-label">Jumlah titik</span>
           <span id="point-count" class="stat-value">0</span>
@@ -142,6 +150,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="js/material-data.js"></script>
 <script src="js/app.js"></script>
 </body>
