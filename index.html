@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>Estimasi Material Jaringan Distribusi</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="logo" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="16" fill="#ffffff" fill-opacity="0.14" />
+        <path d="M17 4 L9 18 L15 18 L14 28 L23 13 L16 13 Z" fill="#ffd54f" />
+      </svg>
+    </div>
+    <div class="topbar-text">
+      <h1>Estimasi Material Jaringan Distribusi</h1>
+      <span class="subtitle">JTM / JTR &middot; klik titik di peta untuk mengukur jarak rute</span>
+    </div>
+    <div id="undo-redo-group" class="undo-redo-group">
+      <button id="btn-undo" class="topbar-icon-btn" disabled title="Undo" aria-label="Undo">
+        <svg viewBox="0 0 24 24" width="19" height="19" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" fill="currentColor" />
+        </svg>
+      </button>
+      <button id="btn-redo" class="topbar-icon-btn" disabled title="Redo" aria-label="Redo">
+        <svg viewBox="0 0 24 24" width="19" height="19" xmlns="http://www.w3.org/2000/svg">
+          <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" fill="currentColor" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="map-wrap">
+      <div id="map" class="map"></div>
+      <button id="btn-locate" class="locate-btn" title="Lokasi Saya" aria-label="Lokasi Saya">
+        <svg viewBox="0 0 24 24" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="3" fill="#fff" />
+          <path d="M12 3v4M12 17v4M3 12h4M17 12h4" stroke="#fff" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
+
+    <aside class="panel">
+
+      <section id="step-draw" class="step">
+        <h2>1. Titik Rute</h2>
+        <p class="hint">Klik pada peta untuk menandai titik A, B, C, dst mengikuti rute jaringan.</p>
+        <div class="stat">
+          <span class="stat-label">Jumlah titik</span>
+          <span id="point-count" class="stat-value">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Jarak total</span>
+          <span id="live-distance" class="stat-value">0 m</span>
+        </div>
+        <div class="btn-row">
+          <button id="btn-finish-draw" class="btn btn-primary" disabled>Selesai Menitik</button>
+          <button id="btn-reset-draw" class="btn btn-secondary">Reset</button>
+        </div>
+      </section>
+
+      <section id="step-category" class="step" hidden>
+        <h2>2. Pilih Kategori</h2>
+        <p class="hint">Jarak rute: <strong id="category-distance"></strong></p>
+        <div class="btn-col">
+          <button class="btn btn-choice" data-category="JTM">JTM</button>
+          <button class="btn btn-choice" data-category="JTR_MURNI">JTR Murni</button>
+          <button class="btn btn-choice" data-category="NUMPANG">JTM &amp; JTR Numpang</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-back-to-draw" class="btn btn-secondary">Kembali</button>
+        </div>
+      </section>
+
+      <section id="step-confirm" class="step" hidden>
+        <h2>3. Konfirmasi Gardu</h2>
+        <p class="hint">
+          Kategori: <strong id="confirm-category"></strong><br />
+          Jarak rute: <strong id="confirm-distance"></strong>
+        </p>
+        <p class="hint">
+          Titik-titik tiang sudah muncul di peta. Klik salah satu titik tiang (oranye) untuk menandainya sebagai lokasi <strong>Gardu</strong> (opsional).
+        </p>
+        <p class="hint" id="gardu-status" hidden>
+          Gardu ditandai di 1 titik.
+        </p>
+        <div class="stat" id="gardu-kva-row" hidden>
+          <span class="stat-label">Kapasitas Trafo</span>
+          <select id="gardu-kva" class="select-kva">
+            <option value="50">50 kVA</option>
+            <option value="100" selected>100 kVA</option>
+            <option value="160">160 kVA</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button id="btn-hapus-gardu" class="btn btn-secondary" hidden>Hapus Gardu</button>
+        </div>
+        <div class="btn-row">
+          <button id="btn-confirm-calc" class="btn btn-primary">Hitung Material</button>
+          <button id="btn-redo-points" class="btn btn-secondary">Ulangi Penitikan</button>
+        </div>
+      </section>
+
+      <section id="step-result" class="step" hidden>
+        <h2>Hasil Estimasi</h2>
+        <p class="hint">
+          Kategori: <strong id="result-category"></strong><br />
+          Jarak rute: <strong id="result-distance"></strong><br />
+          Jumlah tiang: <strong id="result-poles"></strong><br />
+          Jarak Transportasi (Gudang &rarr; Lokasi): <strong id="result-transport"></strong>
+        </p>
+
+        <h3>Material Utama</h3>
+        <table class="material-table" id="table-main"></table>
+
+        <h3>Jenis Konstruksi</h3>
+        <table class="material-table" id="table-jenis-konstruksi"></table>
+
+        <h3>Material Non Utama</h3>
+        <table class="material-table" id="table-non-utama"></table>
+
+        <div class="btn-row">
+          <button id="btn-export" class="btn btn-primary">Export ke Excel</button>
+          <button id="btn-new" class="btn btn-secondary">Mulai Baru</button>
+        </div>
+      </section>
+
+    </aside>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/material-data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
